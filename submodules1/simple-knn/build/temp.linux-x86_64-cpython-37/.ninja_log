@@ -1,0 +1,4 @@
+# ninja log v5
+0	9793	1723075360800975902	/mnt/data2/kai/EndoGaussian/submodules/simple-knn/build/temp.linux-x86_64-cpython-37/simple_knn.o	28c4e080aa34223
+0	24312	1723075375309715777	/mnt/data2/kai/EndoGaussian/submodules/simple-knn/build/temp.linux-x86_64-cpython-37/ext.o	8dfeb547de420304
+1	42045	1723075393054620704	/mnt/data2/kai/EndoGaussian/submodules/simple-knn/build/temp.linux-x86_64-cpython-37/spatial.o	f0c3bfdb81e75225
