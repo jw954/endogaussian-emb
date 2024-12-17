@@ -88,7 +88,7 @@ class Scene:
             print('done loading model and ply!')
         else:
             # self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent, self.maxtime)
-            self.gaussians.create_from_pcd(scene_info.point_cloud, args.camera_extent, self.maxtime)
+            self.gaussians.create_from_pcd(scene_info.point_cloud, args.camera_extent, self.maxtime, scene_info.semantic_feature_dim)
 
     def save(self, iteration, stage):
         if stage == "coarse":

@@ -23,9 +23,9 @@ rule cuda_compile
 
 
 
-build /mnt/data2/kai/EndoGaussian1/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/ext.o: compile /mnt/data2/kai/EndoGaussian1/submodules/simple-knn/ext.cpp
-build /mnt/data2/kai/EndoGaussian1/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/simple_knn.o: cuda_compile /mnt/data2/kai/EndoGaussian1/submodules/simple-knn/simple_knn.cu
-build /mnt/data2/kai/EndoGaussian1/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/spatial.o: cuda_compile /mnt/data2/kai/EndoGaussian1/submodules/simple-knn/spatial.cu
+build /mnt/data2/kai/endogaussian-emb/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/ext.o: compile /mnt/data2/kai/endogaussian-emb/submodules/simple-knn/ext.cpp
+build /mnt/data2/kai/endogaussian-emb/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/simple_knn.o: cuda_compile /mnt/data2/kai/endogaussian-emb/submodules/simple-knn/simple_knn.cu
+build /mnt/data2/kai/endogaussian-emb/submodules/simple-knn/build/temp.linux-x86_64-cpython-311/spatial.o: cuda_compile /mnt/data2/kai/endogaussian-emb/submodules/simple-knn/spatial.cu
 
 
 
