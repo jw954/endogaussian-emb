@@ -51,6 +51,13 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
     print('densify until iter:', opt.densify_until_iter)
 
     first_iter = 0
+
+    train_cameras = scene.getTrainCameras()  # This returns a FourDGSdataset
+    random_idx = randint(0, len(train_cameras)-1)
+    viewpoint_cam = train_cameras[random_idx]
+    gt_feature_map = viewpoint_cam.semantic_feature.cuda()
+    feature_out_dim = gt_feature_map.shape[0]
+
     gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
@@ -116,6 +123,10 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         # Render
         if (iteration - 1) == debug_from:
             pipe.debug = True
+
+        render_pkg = render(viewpoint_cam, gaussians, pipe, background)        
+
+        feature_map, image, viewspace_point_tensor, visibility_filter, radii = render_pkg["feature_map"], render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
             
         images = []
         depths = []
@@ -266,26 +277,6 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
 
 def training(dataset, hyper, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, expname, extra_mark):
-
-    # print("=== Dataset Attributes ===")
-    # for k, v in vars(dataset).items():
-    #     print(f"{k}: {v}")
-
-    # print("=== Hyper Parameters (ModelHiddenParams) ===")
-    # for k, v in vars(hyper).items():
-    #     print(f"{k}: {v}")
-
-    # print("=== Optimization Parameters (opt) ===")
-    # for k, v in vars(opt).items():
-    #     print(f"{k}: {v}")
-
-    # print("=== Pipeline Parameters (pipe) ===")
-    # for k, v in vars(pipe).items():
-    #     print(f"{k}: {v}")
-
-    # print("=== Additional Args ===")
-    # for k, v in vars(args).items():
-    #     print(f"{k}: {v}")
 
     tb_writer = prepare_output_and_logger(expname)
     gaussians = GaussianModel(dataset.sh_degree, hyper)

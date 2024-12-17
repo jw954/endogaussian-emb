@@ -43,6 +43,10 @@ class CameraInfo(NamedTuple):
     mask: np.array
     Zfar: float
     Znear: float
+    semantic_feature: torch.tensor 
+    semantic_feature_path: str 
+    semantic_feature_name: str 
+
 
 
 def normalize(v):
@@ -135,35 +139,48 @@ def farthest_point_sample(xyz, npoint):
 
     return centroids.astype(np.int32)
 
+
+#endonerd dataset has been modified
 class EndoNeRF_Dataset(object):
     def __init__(
         self,
         datadir,
         downsample=1.0,
         test_every=8,
-        device='cuda:3'  # Add the device parameter with a default value
+        device='cuda:3',
+        foundation_model=None,  # Add this if you want to handle different feature extraction models
+        semantic_feature_folder=None  # Add this optional argument
     ):
-        self.device = device  # Store the device as an instance attribute
-        self.img_wh = (
-            int(640 / downsample),
-            int(512 / downsample),
-        )
+        self.device = device
+        self.img_wh = (int(640 / downsample), int(512 / downsample))
         self.root_dir = datadir
-        self.downsample = downsample 
+        self.downsample = downsample
         self.blender2opencv = np.eye(4)
         self.transform = T.ToTensor()
         self.white_bg = False
 
+        # If a foundation model is specified, determine the semantic_feature_folder
+        if semantic_feature_folder is None and foundation_model is not None:
+            if foundation_model == 'sam':
+                semantic_feature_folder = os.path.join(self.root_dir, "sam_embeddings")
+                print('located semantic features folder: ', semantic_feature_folder)
+            elif foundation_model == 'lseg':
+                semantic_feature_folder = os.path.join(self.root_dir, "rgb_feature_langseg")
+            else:
+                semantic_feature_folder = os.path.join(self.root_dir, "semantic_features")
+        
+        self.semantic_feature_folder = semantic_feature_folder
+
         self.load_meta()
-        print(f"meta data loaded, total image:{len(self.image_paths)}")
-        
+        print(f"meta data loaded, total images: {len(self.image_paths)}")
+
         n_frames = len(self.image_paths)
-        self.train_idxs = [i for i in range(n_frames) if (i-1) % test_every != 0]
-        self.test_idxs = [i for i in range(n_frames) if (i-1) % test_every == 0]
+        self.train_idxs = [i for i in range(n_frames) if (i - 1) % test_every != 0]
+        self.test_idxs = [i for i in range(n_frames) if (i - 1) % test_every == 0]
         self.video_idxs = [i for i in range(n_frames)]
-        
+
         self.maxtime = 1.0
-        
+
     def load_meta(self):
         """
         Load meta data from the dataset.
@@ -204,119 +221,102 @@ class EndoNeRF_Dataset(object):
         assert len(self.depth_paths) == poses.shape[0], "the number of depth images should equal to number of poses"
         assert len(self.masks_paths) == poses.shape[0], "the number of masks should equal to the number of poses"
         
+
+#return the cameras
     def format_infos(self, split):
-        cameras = []
-        
-        if split == 'train': idxs = self.train_idxs
-        elif split == 'test': idxs = self.test_idxs
+        if split == 'train':
+            idxs = self.train_idxs
+        elif split == 'test':
+            idxs = self.test_idxs
         else:
             idxs = self.video_idxs
-        
-        depths = []
-        depths_tensor = []
-        depths_cnt = []
-        colors = []
-        colors_tensor = []
-        colors_cnt = []
-        mask_nps = []
-        original_idxs = []
-        
+
+        cameras = []
         for idx in tqdm(idxs):
             mask_path = self.masks_paths[idx]
             depth_path = self.depth_paths[idx]
+            image_path = self.image_paths[idx]
+            image_name = f"{idx}"
+
+            # print('image idx:', image_name)
+            # print('image name:', os.path.basename(image_path).split(".")[0])
+            #for getting corresponding features in sam_embeddings
+            img_name = os.path.basename(image_path).split(".")[0]
+
             mask = Image.open(mask_path)
             mask = 1 - np.array(mask) / 255.0
             depth = np.array(Image.open(depth_path))
             depth_mask = np.ones(depth.shape).astype(np.float32)
             close_depth = np.percentile(depth[depth!=0], 3.0)
             inf_depth = np.percentile(depth[depth!=0], 98.0)
-            depth_mask[depth>inf_depth] = 0
-            depth_mask[np.bitwise_and(depth<close_depth, depth!=0)] = 0
-            depth_mask[depth==0] = 0
+            depth_mask[depth > inf_depth] = 0
+            depth_mask[np.bitwise_and(depth < close_depth, depth != 0)] = 0
+            depth_mask[depth == 0] = 0
             mask_np = np.logical_and(depth_mask, mask)
-            
             depth[mask_np==0] = 0
+
+            # Fill hole in depth
             depth_tmp = copy.deepcopy(depth)
             depth_cnt = np.ones_like(depth_tmp)
             depth_cnt[mask_np==0] = 0
-            # depth_tmp = torch.from_numpy(depth_tmp).unsqueeze(0).unsqueeze(1).float()
             depth_tmp = torch.from_numpy(depth_tmp.astype(np.float32)).unsqueeze(0).unsqueeze(1)
-            # depth_cnt = torch.from_numpy(depth_cnt).unsqueeze(0).unsqueeze(1).float()
-            depth_cnt = torch.from_numpy(depth_cnt.astype(np.float32)).unsqueeze(0).unsqueeze(1)
+            depth_cnt = torch.from_numpy(depth_cnt.astype(np.float32)).unsqueeze(0).unsqueeze(1).to(self.device)
 
-            
-            image_path = self.image_paths[idx]
-            image_name = f"{idx}"
-            color = np.array(Image.open(image_path))/255.0
-            color[mask_np==0, :] = np.zeros(3)
-            color_tmp = copy.deepcopy(color)
-            color_cnt = np.ones_like(depth)
-            color_cnt[mask_np==0] = 0
-            color_tmp = torch.from_numpy(color_tmp).unsqueeze(0).float()
-            color_tmp = color_tmp.permute(0, 3, 1, 2).contiguous()
-            # color_cnt = torch.from_numpy(color_cnt).unsqueeze(0).unsqueeze(1).float()
-            color_cnt = torch.from_numpy(color_cnt.astype(np.float32)).unsqueeze(0).unsqueeze(1)
-            
-            depths.append(depth)
-            depths_tensor.append(depth_tmp)
-            mask_nps.append(mask_np)
-            depths_cnt.append(depth_cnt)
-            colors.append(color)
-            colors_tensor.append(color_tmp)
-            colors_cnt.append(color_cnt)
-            original_idxs.append(idx)
-        
-        depth_tmp_tensor = torch.cat(depths_tensor, dim=0).to(self.device)
-        depth_cnt_tensor = torch.cat(depths_cnt, dim=0).to(self.device)
-        with torch.no_grad():
-            depth_tmp_tensor = F.conv2d(depth_tmp_tensor, weight=torch.ones(1,1,251,251).to(self.device), stride=(1,1), padding='same')
-            ones_tmp_tensor = F.conv2d(depth_cnt_tensor, weight=torch.ones(1,1,251,251).to(self.device), stride=(1,1), padding='same')
-        
-        color_list = []
-        color_tmp_tensor = torch.cat(colors_tensor, dim=0).to(self.device)
-        color_cnt_tensor = torch.cat(colors_cnt, dim=0).to(self.device)
-        with torch.no_grad():
-            for i in range(color_tmp.shape[1]):
-                color_tmp_c = F.conv2d(color_tmp_tensor[:,i].unsqueeze(1), weight=torch.ones(1, 1, 251, 251).to(self.device), stride=(1, 1), padding='same')
-                color_list.append(color_tmp_c)
-        color_tmp_tensor = torch.cat(color_list, dim=1)
-        color_ones_tmp = F.conv2d(color_cnt_tensor, weight=torch.ones(1,1,251,251).to(self.device), stride=(1, 1), padding='same')
-        color_ones_tmp_tensor = color_ones_tmp.repeat_interleave(3, dim=1)
-        
-        for idx in range(len(depths)):
-            # depth & mask
-            depth = depths[idx]
-            mask_np = mask_nps[idx]
-            ones_tmp = ones_tmp_tensor[idx].detach().cpu()
-            depth_tmp = depth_tmp_tensor[idx].detach().cpu()
+            depth_tmp = depth_tmp.to(self.device)
+            depth_tmp = F.conv2d(depth_tmp, weight=torch.ones(1,1,251,251).to(self.device), stride=(1,1), padding='same')
+            ones_tmp = F.conv2d(depth_cnt, weight=torch.ones(1,1,251,251).to(self.device), stride=(1,1), padding='same')
             depth_tmp[ones_tmp!=0] = depth_tmp[ones_tmp!=0] / ones_tmp[ones_tmp!=0]
             depth_tmp = depth_tmp.squeeze().detach().cpu().numpy()
             depth = depth * (mask_np!=0) + depth_tmp * (mask_np==0)
             depth = self.transform(depth)
-            mask = self.transform(mask_np).bool()
-            # color
-            color = colors[idx]
-            color_ones_tmp = color_ones_tmp_tensor[idx].detach().cpu()
-            color_tmp = color_tmp_tensor[idx].detach().cpu()
+            mask_t = self.transform(mask_np).bool()
+
+            # Color
+            color = np.array(Image.open(image_path))/255.0
+            color[mask_np==0] = 0
+            color_tmp = copy.deepcopy(color)
+            color_cnt = np.ones_like(depth_tmp)
+            color_cnt[mask_np==0] = 0
+            color_tmp = torch.from_numpy(color_tmp.astype(np.float32)).unsqueeze(0).permute(0,3,1,2).contiguous().to(self.device)
+            color_cnt = torch.from_numpy(color_cnt.astype(np.float32)).unsqueeze(0).unsqueeze(1).to(self.device)
+
+            color_list = []
+            for i_c in range(color_tmp.shape[1]):
+                color_tmp_c = F.conv2d(color_tmp[:, i_c].unsqueeze(1), weight=torch.ones(1,1,251,251).to(self.device), stride=(1,1), padding='same')
+                color_list.append(color_tmp_c)
+            color_tmp = torch.cat(color_list, dim=1)
+            color_ones_tmp = F.conv2d(color_cnt, weight=torch.ones(1,1,251,251).to(self.device), stride=(1,1), padding='same')
+            color_ones_tmp = color_ones_tmp.repeat_interleave(3, dim=1)
             color_tmp[color_ones_tmp!=0] = color_tmp[color_ones_tmp!=0] / color_ones_tmp[color_ones_tmp!=0]
-            color_tmp = color_tmp.permute(1, 2, 0).contiguous()
-            color_tmp = color_tmp.detach().cpu().numpy()
+            color_tmp = color_tmp.squeeze(0).permute(1,2,0).detach().cpu().numpy()
             color = color * (mask_np!=0)[..., None] + color_tmp * (mask_np==0)[..., None]
             image = self.transform(color)
-            # times           
-            time = self.image_times[original_idxs[idx]]
-            # poses
-            R, T = self.image_poses[original_idxs[idx]]
-            # fov
+
+            # Times and poses
+            time = self.image_times[idx]
+            R, T = self.image_poses[idx]
             FovX = focal2fov(self.focal[0], self.img_wh[0])
             FovY = focal2fov(self.focal[1], self.img_wh[1])
-            
-            # print('adding cam info to cameras')
-            cameras.append(CameraInfo(uid=original_idxs[idx], R=R, T=T, FovY=FovY, FovX=FovX, image=image, depth=depth, mask=mask,
-                                image_path=image_path, image_name=image_name, width=image.shape[2], height=image.shape[1],
-                                time=time, Znear=None, Zfar=None))
-    
+
+            # Load semantic feature if available
+            semantic_feature = None
+            if self.semantic_feature_folder is not None:
+                semantic_feature_path = os.path.join(self.semantic_feature_folder, f"{img_name}_fmap_CxHxW.pt")
+                semantic_feature_name = os.path.basename(semantic_feature_path).split(".")[0]
+                # print('os.path.exists --> ' , semantic_feature_path, ":" , os.path.exists(semantic_feature_path))
+                if os.path.exists(semantic_feature_path):
+                    semantic_feature = torch.load(semantic_feature_path)
+                    # print('loaded semantic features into Camera Info')
+            cameras.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image, depth=depth, mask=mask_t,
+                                      image_path=image_path, image_name=image_name,
+                                      width=image.shape[2], height=image.shape[1],
+                                      time=time, Znear=None, Zfar=None,
+                                      semantic_feature=semantic_feature,
+                                      semantic_feature_path=semantic_feature_path,
+                                      semantic_feature_name=semantic_feature_name))
+
         return cameras
+
             
     def generate_cameras(self, mode='fixidentity'):
         cameras = []

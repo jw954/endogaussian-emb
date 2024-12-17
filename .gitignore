@@ -1,2 +1,8 @@
 __pycache__/
 build/
+output/
+snapshot_fw.dump
+submodules/depth-diff-gaussian-rasterization/third_party
+submodules/diff-gaussian-rasterization-feature/third_party
+encoders/sam_encoder/checkpoints
+submodules1/

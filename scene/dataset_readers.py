@@ -50,6 +50,7 @@ class SceneInfo(NamedTuple):
     nerf_normalization: dict
     ply_path: str
     maxtime: int
+    semantic_feature_dim: int 
 
 def getNerfppNorm(cam_info):
     def get_center_and_diag(cam_centers):
@@ -476,7 +477,7 @@ def readdynerfInfo(datadir,use_bg_points,eval):
                            )
     return scene_info
 
-def readEndoNeRFInfo(datadir, use_bg_points, eval):
+def readEndoNeRFInfo_old(datadir, use_bg_points, eval):
     # load camera infos
     from scene.endo_loader import EndoNeRF_Dataset
     endo_dataset = EndoNeRF_Dataset(
@@ -489,6 +490,8 @@ def readEndoNeRFInfo(datadir, use_bg_points, eval):
     # print('got test info')
     video_cam_infos = endo_dataset.format_infos(split="video")
     # print('got train, test, and video cam infos!')
+#using sam_embeddings
+    semantic_feature_dir = "sam_embeddings" 
     
     # get normalizations
     nerf_normalization = getNerfppNorm(train_cam_infos)
@@ -521,6 +524,58 @@ def readEndoNeRFInfo(datadir, use_bg_points, eval):
                            nerf_normalization=nerf_normalization,
                            ply_path=ply_path,
                            maxtime=maxtime)
+
+    return scene_info
+
+def readEndoNeRFInfo(datadir, use_bg_points, eval, foundation_model='sam'):
+    from scene.endo_loader import EndoNeRF_Dataset
+    # Decide on your semantic_feature_dir based on foundation_model
+    if foundation_model == 'sam':
+        semantic_feature_dir = 'sam_embeddings'
+    elif foundation_model == 'lseg':
+        semantic_feature_dir = 'rgb_feature_langseg'
+    else:
+        semantic_feature_dir = 'semantic_features'  # default
+
+
+    endo_dataset = EndoNeRF_Dataset(
+        datadir=datadir,
+        downsample=1.0,
+        foundation_model=foundation_model,
+        # semantic_feature_folder=os.path.join(datadir, semantic_feature_dir)
+    )
+    #cameras need to contain a attribute for semantic features
+    train_cam_infos = endo_dataset.format_infos(split="train")
+    test_cam_infos = endo_dataset.format_infos(split="test")
+    video_cam_infos = endo_dataset.format_infos(split="video")
+
+    nerf_normalization = getNerfppNorm(train_cam_infos)
+
+    # load point cloud as before
+    ply_path = os.path.join(datadir, "points3d.ply")
+    xyz, rgb, normals = endo_dataset.get_sparse_pts_v2()
+    pcd = BasicPointCloud(points=xyz, colors=rgb, normals=normals)
+    storePly(ply_path, xyz, rgb*255)
+    pcd = fetchPly(ply_path)
+
+    maxtime = endo_dataset.get_maxtime()
+
+    # Determine semantic_feature_dim from one of the training cameras
+    if train_cam_infos and train_cam_infos[0].semantic_feature is not None:
+        semantic_feature_dim = train_cam_infos[0].semantic_feature.shape[0]
+    else:
+        semantic_feature_dim = 0
+
+    scene_info = SceneInfo(
+        point_cloud=pcd,
+        train_cameras=train_cam_infos,
+        test_cameras=test_cam_infos,
+        video_cameras=video_cam_infos,
+        nerf_normalization=nerf_normalization,
+        ply_path=ply_path,
+        maxtime=maxtime,
+        semantic_feature_dim=semantic_feature_dim
+    )
 
     return scene_info
     
