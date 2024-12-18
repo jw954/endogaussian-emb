@@ -27,6 +27,9 @@ from torch.utils.data import DataLoader
 from utils.timer import Timer
 import cv2
 
+import torch.nn.functional as F
+
+from models.networks import CNN_decoder
 import lpips
 from utils.scene_utils import render_training_image
 from time import time
@@ -57,6 +60,10 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
     viewpoint_cam = train_cameras[random_idx]
     gt_feature_map = viewpoint_cam.semantic_feature.cuda()
     feature_out_dim = gt_feature_map.shape[0]
+
+#nede this 
+    feature_in_dim = int(feature_out_dim/2)
+    cnn_decoder = CNN_decoder(feature_in_dim, feature_out_dim)
 
     gaussians.training_setup(opt)
     if checkpoint:
@@ -128,6 +135,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
 
         feature_map, image, viewspace_point_tensor, visibility_filter, radii = render_pkg["feature_map"], render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
             
+        print('featuremap shape:' , feature_map.shape)
         images = []
         depths = []
         gt_images = []
@@ -137,13 +145,16 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         radii_list = []
         visibility_filter_list = []
         viewspace_point_tensor_list = []
+        features_list = []
+        gt_features_list = []
         
         for viewpoint_cam in viewpoint_cams:
             render_pkg = render(viewpoint_cam, gaussians, pipe, background, stage=stage)
-            image, depth, viewspace_point_tensor, visibility_filter, radii = \
-                render_pkg["render"], render_pkg["depth"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+            feature_map, image, depth, viewspace_point_tensor, visibility_filter, radii = \
+                render_pkg["feature_map"],render_pkg["render"], render_pkg["depth"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
             gt_image = viewpoint_cam.original_image.cuda().float()
             gt_depth = viewpoint_cam.original_depth.cuda().float()
+            gt_feature = viewpoint_cam.semantic_feature.cuda()
             mask = viewpoint_cam.mask.cuda()
             
             # depth_refine_iteration = 5
@@ -164,6 +175,9 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             radii_list.append(radii.unsqueeze(0))
             visibility_filter_list.append(visibility_filter.unsqueeze(0))
             viewspace_point_tensor_list.append(viewspace_point_tensor)
+            features_list.append(feature_map)
+            gt_features_list.append(gt_feature)
+
             
         radii = torch.cat(radii_list,0).max(dim=0).values
         visibility_filter = torch.cat(visibility_filter_list).any(dim=0)
@@ -172,6 +186,16 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         gt_image_tensor = torch.cat(gt_images,0)
         gt_depth_tensor = torch.cat(gt_depths, 0)
         mask_tensor = torch.cat(masks, 0)
+        feature_map = torch.cat(features_list, 0)
+        gt_feature_map = torch.cat(gt_features_list, 0)
+        print('image temsor shape:', image_tensor.shape) # torch.Size([1, 3, 512, 640])
+        print('mask tensor shape:' , mask_tensor.shape) # ([1, 1, 512, 640])
+        print('fetaure size:', feature_map.shape) # [128, 545, 980]
+        print('gt feature size:', gt_feature.shape) #[256, 51, 64]
+
+        feature_map = F.interpolate(feature_map.unsqueeze(0), size=(gt_feature_map.shape[1], gt_feature_map.shape[2]), mode='bilinear', align_corners=True).squeeze(0)
+        feature_map = cnn_decoder(feature_map)
+        Ll1_feature = torch.abs((feature_map - gt_feature_map)).mean()
                 
         # mask_tensor = None
         if iteration < 1000:
@@ -209,6 +233,8 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             lpipsloss = lpips_loss(image_tensor,gt_image_tensor,lpips_model)
             loss += opt.lambda_lpips * lpipsloss
         
+        # try Ll1 feature loss
+        loss = Ll1 + Ll1_feature
         loss.backward()
         viewspace_point_tensor_grad = torch.zeros_like(viewspace_point_tensor)
         for idx in range(0, len(viewspace_point_tensor_list)):

@@ -288,8 +288,8 @@ class GaussianModel:
 
         #f3dgs
         count = sum(1 for name in plydata.elements[0].data.dtype.names if name.startswith("semantic_"))
-        # semantic_feature = np.stack([np.asarray(plydata.elements[0][f"semantic_{i}"]) for i in range(count)], axis=1) 
-        # semantic_feature = np.expand_dims(semantic_feature, axis=-1) 
+        semantic_feature = np.stack([np.asarray(plydata.elements[0][f"semantic_{i}"]) for i in range(count)], axis=1) 
+        semantic_feature = np.expand_dims(semantic_feature, axis=-1) 
         
         extra_f_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("f_rest_")]
         extra_f_names = sorted(extra_f_names, key = lambda x: int(x.split('_')[-1]))
