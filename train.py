@@ -60,10 +60,13 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
     viewpoint_cam = train_cameras[random_idx]
     gt_feature_map = viewpoint_cam.semantic_feature.cuda()
     feature_out_dim = gt_feature_map.shape[0]
+    print('feature out dim', feature_out_dim) # 256
 
 #nede this 
     feature_in_dim = int(feature_out_dim/2)
-    cnn_decoder = CNN_decoder(feature_in_dim, feature_out_dim)
+    # feature_in_dim = feature_out_dim
+    print('feature in dim', feature_in_dim) # 256
+    cnn_decoder = CNN_decoder(feature_in_dim, feature_out_dim) # in dim and out dim expected to be 256
 
     gaussians.training_setup(opt)
     if checkpoint:
@@ -188,14 +191,17 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         mask_tensor = torch.cat(masks, 0)
         feature_map = torch.cat(features_list, 0)
         gt_feature_map = torch.cat(gt_features_list, 0)
-        print('image temsor shape:', image_tensor.shape) # torch.Size([1, 3, 512, 640])
-        print('mask tensor shape:' , mask_tensor.shape) # ([1, 1, 512, 640])
-        print('fetaure size:', feature_map.shape) # [128, 545, 980]
-        print('gt feature size:', gt_feature.shape) #[256, 51, 64]
+        # print('image temsor shape:', image_tensor.shape) # torch.Size([1, 3, 512, 640])
+        # print('mask tensor shape:' , mask_tensor.shape) # ([1, 1, 512, 640])
+        # print('fetaure size:', feature_map.shape) # [128, 545, 980]
+        # print('gt feature size:', gt_feature_map.shape) #[256, 51, 64]
 
         feature_map = F.interpolate(feature_map.unsqueeze(0), size=(gt_feature_map.shape[1], gt_feature_map.shape[2]), mode='bilinear', align_corners=True).squeeze(0)
+        print('feature map size into CNN decoder:', feature_map.shape)
         feature_map = cnn_decoder(feature_map)
+        # print('feature map size:', feature_map.shape)
         Ll1_feature = torch.abs((feature_map - gt_feature_map)).mean()
+        # print('feature loss:', Ll1_feature)
                 
         # mask_tensor = None
         if iteration < 1000:
@@ -221,20 +227,25 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         
         psnr_ = psnr(image_tensor, gt_image_tensor, mask_tensor).mean().double()        
 
-        loss = Ll1 + Ll1_depth
+        # loss = Ll1 + Ll1_depth # modified
         
         if stage == "fine" and hyper.time_smoothness_weight != 0:
             tv_loss = gaussians.compute_regulation(hyper.time_smoothness_weight, hyper.plane_tv_weight, hyper.l1_time_planes)
             loss += tv_loss
+            # print('tv loss:', tv_loss)
         if opt.lambda_dssim != 0:
             ssim_loss = ssim(image_tensor,gt_image_tensor)
             loss += opt.lambda_dssim * (1.0-ssim_loss)
+            # print('ssim loss:', ssim_loss)
         if opt.lambda_lpips !=0:
             lpipsloss = lpips_loss(image_tensor,gt_image_tensor,lpips_model)
             loss += opt.lambda_lpips * lpipsloss
+            # print('lpips loss:', lpipsloss)
         
         # try Ll1 feature loss
         loss = Ll1 + Ll1_feature
+        # print(Ll1, Ll1_feature)
+        # print(loss)
         loss.backward()
         viewspace_point_tensor_grad = torch.zeros_like(viewspace_point_tensor)
         for idx in range(0, len(viewspace_point_tensor_list)):

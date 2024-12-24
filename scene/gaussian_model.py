@@ -144,8 +144,7 @@ class GaussianModel:
     def oneupSHdegree(self):
         if self.active_sh_degree < self.max_sh_degree:
             self.active_sh_degree += 1
-
-#for now not include speedup from f3dgs
+# assume using speedup
     def create_from_pcd(self, pcd : BasicPointCloud, spatial_lr_scale : float, time_line: int, semantic_feature_size : int):
         self.spatial_lr_scale = spatial_lr_scale
         fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
@@ -153,10 +152,17 @@ class GaussianModel:
         features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
         features[:, :3, 0 ] = fused_color
         features[:, 3:, 1:] = 0.0
+        # print('create from pcd, semantic feature size:' , semantic_feature_size)  # 256
+
+# feature_out_dim / NUMBER = NUM_SEMANTIC_CHANNELS
+# ie; 256/ NUMBER = 128
+        #try this
+        semantic_feature_size = int(semantic_feature_size/2)
 #f3dgs
         self._semantic_feature = torch.zeros(fused_point_cloud.shape[0], semantic_feature_size, 1).float().cuda() 
 
         print("Number of points at initialisation : ", fused_point_cloud.shape[0])
+        print('semantic feature shape:', self._semantic_feature.shape)
 
         dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(pcd.points)).float().cuda()), 0.0000001)
         scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 3)
