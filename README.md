@@ -35,15 +35,15 @@ export LD_LIBRARY_PATH=$CUDA_HOME/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}
 ```
 git submodule update --init --recursive
 
-conda create -n EndoGaussian python=3.7
+conda create -n EndoGaussian python=3.10
 
 conda activate EndoGaussian
 
 pip install -r requirements.txt
 
-pip install -e submodules1/depth-diff-gaussian-rasterization
+pip install -e submodules/depth-diff-gaussian-rasterization
 
-pip install -e submodules1/simple-knn
+pip install -e submodules/simple-knn
 ```
 
 
