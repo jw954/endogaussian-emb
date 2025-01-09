@@ -14,7 +14,11 @@ import os
 import torch
 from random import randint
 from utils.loss_utils import l1_loss, ssim, l2_loss, lpips_loss, TV_loss
+
+# Try import gsplat as renderer instead 
+
 from gaussian_renderer import render, network_gui
+# from gaussian_renderer import gsplat_render as render, network_gui
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state
@@ -68,6 +72,8 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
     print('feature in dim', feature_in_dim) # 256
     cnn_decoder = CNN_decoder(feature_in_dim, feature_out_dim) # in dim and out dim expected to be 256
 
+    cnn_decoder_optimizer = torch.optim.Adam(cnn_decoder.parameters(), lr=0.0001)
+
     gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
@@ -89,6 +95,10 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
     #vgg net used to compute some perceptual loss function, not trained during training routine
     lpips_model = lpips.LPIPS(net="vgg").cuda()
     video_cams = scene.getVideoCameras()
+
+#for endogaussian
+    # if not viewpoint_stack:
+    #     viewpoint_stack = scene.getTrainCameras()
     
     for iteration in range(first_iter, final_iter+1):        
         # if network_gui.conn == None:
@@ -111,7 +121,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         iter_start.record()
         gaussians.update_learning_rate(iteration)
         # Every 1000 its we increase the levels of SH up to a maximum degree
-        if iteration % 500 == 0:
+        if iteration % 1000 == 0:
             gaussians.oneupSHdegree()
         # Pick a random Camera
         if not viewpoint_stack:
@@ -119,7 +129,8 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             batch_size = 16
             viewpoint_stack_loader = DataLoader(viewpoint_stack, batch_size=batch_size,shuffle=True,num_workers=32,collate_fn=list)
             loader = iter(viewpoint_stack_loader)
-        
+        #dataloader is false
+
         if opt.dataloader:
             try:
                 viewpoint_cams = next(loader)
@@ -130,15 +141,35 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             idx = randint(0, len(viewpoint_stack)-1)
             viewpoint_cams = [viewpoint_stack[idx]]
 
+        # below is feature3dgs impelemtnation?
+        # Pick a random Camera
+        # if not viewpoint_stack:
+        #     viewpoint_stack = scene.getTrainCameras()
+        #     batch_size = 16
+        #     viewpoint_stack_loader = DataLoader(viewpoint_stack, batch_size=batch_size,shuffle=True,num_workers=32,collate_fn=list)
+        #     loader = iter(viewpoint_stack_loader)
+        
+        # if opt.dataloader:
+        #     try:
+        #         viewpoint_cams = next(loader)
+        #     except StopIteration:
+        #         print("reset dataloader")
+        #         loader = iter(viewpoint_stack_loader)
+        # else:
+        #     idx = randint(0, len(viewpoint_stack)-1)
+        #     viewpoint_cams = [viewpoint_stack[idx]]
+
+
+
         # Render
         if (iteration - 1) == debug_from:
             pipe.debug = True
 
-        render_pkg = render(viewpoint_cam, gaussians, pipe, background)        
+        #render_pkg = render(viewpoint_cam, gaussians, pipe, background)        
 
-        feature_map, image, viewspace_point_tensor, visibility_filter, radii = render_pkg["feature_map"], render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+        #feature_map, image, viewspace_point_tensor, visibility_filter, radii = render_pkg["feature_map"], render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
             
-        print('featuremap shape:' , feature_map.shape)
+        # print('featuremap shape:' , feature_map.shape)
         images = []
         depths = []
         gt_images = []
@@ -197,7 +228,7 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         # print('gt feature size:', gt_feature_map.shape) #[256, 51, 64]
 
         feature_map = F.interpolate(feature_map.unsqueeze(0), size=(gt_feature_map.shape[1], gt_feature_map.shape[2]), mode='bilinear', align_corners=True).squeeze(0)
-        print('feature map size into CNN decoder:', feature_map.shape)
+        # print('feature map size into CNN decoder:', feature_map.shape)
         feature_map = cnn_decoder(feature_map)
         # print('feature map size:', feature_map.shape)
         Ll1_feature = torch.abs((feature_map - gt_feature_map)).mean()
@@ -243,7 +274,8 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             # print('lpips loss:', lpipsloss)
         
         # try Ll1 feature loss
-        loss = Ll1 + Ll1_feature
+        # loss = Ll1 + Ll1_feature
+        loss = Ll1 + Ll1_depth + Ll1_feature
         # print(Ll1, Ll1_feature)
         # print(loss)
         loss.backward()
@@ -271,6 +303,8 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration, stage)
+                print('saving the cnn decoder')
+                torch.save(cnn_decoder.state_dict(), scene.model_path + "/decoder_chkpnt" + str(iteration) + ".pth")
             if dataset.render_process:
                 if (iteration < 1000 and iteration % 10 == 1) \
                     or (iteration < 3000 and iteration % 50 == 1) \
@@ -309,6 +343,10 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
                 gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none = True)
 
+                #we are implicitly using speedup by calling CNN 
+                cnn_decoder_optimizer.step()
+                cnn_decoder_optimizer.zero_grad(set_to_none = True)
+
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
@@ -322,13 +360,17 @@ def training(dataset, hyper, opt, pipe, testing_iterations, saving_iterations, c
     timer = Timer()
     scene = Scene(dataset, gaussians, load_coarse=None)
     timer.start()
+    # coarse iterations 1000
+    #opt.coarse_iterations = 1000
+    saving_iterations = [1000, 3000, 5000, 7000, 9000, 10000, 14000, 20000, 30000, 45000, 60000, 30000]
     scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_iterations,
                              checkpoint_iterations, checkpoint, debug_from,
-                             gaussians, scene, "coarse", tb_writer, opt.coarse_iterations,timer)
+                             gaussians, scene, "coarse", tb_writer, opt.coarse_iterations, timer)
     print('on to fine reconstruction\n')
+    #opt.iterations = 3000
     scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_iterations,
                          checkpoint_iterations, checkpoint, debug_from,
-                         gaussians, scene, "fine", tb_writer, opt.iterations,timer)
+                         gaussians, scene, "fine", tb_writer, opt.iterations, timer)
 
 def prepare_output_and_logger(expname):    
     if not args.model_path:

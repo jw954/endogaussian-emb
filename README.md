@@ -21,7 +21,7 @@
 
 ## Commands to run the code
 
-### Get correct CUDA version    
+### Get correct CUDA version (If you get error)
 
 ```
 export CUDA_HOME=/usr/local/cuda-11.8
@@ -46,6 +46,27 @@ pip install -e submodules/depth-diff-gaussian-rasterization
 pip install -e submodules/simple-knn
 ```
 
+### Get the embeddings
+
+```
+cd encoders/sam_encoder
+pip install -e .
+```
+Download the following same encoders
+
+ViT-H: https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth
+
+ViT-L: https://dl.fbaipublicfiles.com/segment_anything/sam_vit_l_0b3195.pth
+
+ViT-B: https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth
+
+Place it in `encoders/sam_encoder/checkpoints`
+
+```
+cd encoders/sam_encoder
+python export_image_embeddings.py --checkpoint checkpoints/sam_vit_h_4b8939.pth --model-type vit_h --input <dataset_path>/images  --output <data_path>/sam_embeddings
+```
+
 
 ### For training:
 
@@ -59,7 +80,7 @@ python train.py -s ../pulling_soft_tissues --port 6017 --expname endonerf/pullin
 ### Rendering
 
 ```
-python render.py --model_path output/endonerf/pulling  --skip_train --skip_video --configs arguments/endonerf/pulling.py
+python render.py -s ../pulling_soft_tissues -m output --iteration 3000
 ```
 
 
@@ -72,6 +93,7 @@ python metrics.py --model_path output/endonerf/pulling
 
 expected folder structure 
 
+```
 train 
  --images
  --sam_embeddings
@@ -81,3 +103,4 @@ train
    --points3D.bin
    --points3D.ply
    --project.ini
+```
