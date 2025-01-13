@@ -367,7 +367,7 @@ void CudaRasterizer::Rasterizer::backward(
 	char* img_buffer,
 	const float* dL_dpix,
 	const float* dL_dfeaturepix, /**/
-	const float* dL_depths, /**/
+	// const float* dL_depths, /**/
 	float* dL_dmean2D,
 	float* dL_dconic,
 	float* dL_dopacity,
@@ -378,7 +378,7 @@ void CudaRasterizer::Rasterizer::backward(
 	float* dL_dsh,
 	float* dL_dscale,
 	float* dL_drot,
-	float* dL_dz, /**/
+	// float* dL_dz, /**/
 	bool debug)
 {
 	GeometryState geomState = GeometryState::fromChunk(geom_buffer, P);
@@ -402,7 +402,7 @@ void CudaRasterizer::Rasterizer::backward(
 	const float* color_ptr = (colors_precomp != nullptr) ? colors_precomp : geomState.rgb;
 	float* collected_semantic_feature; /**/
 	cudaMalloc((void**)&collected_semantic_feature, NUM_SEMANTIC_CHANNELS * BLOCK_SIZE * sizeof(float)); /**/
-	const float* depth_ptr = geomState.depths; /**/
+	// const float* depth_ptr = geomState.depths; /**/
 	CHECK_CUDA(BACKWARD::render(
 		tile_grid,
 		block,
@@ -414,18 +414,18 @@ void CudaRasterizer::Rasterizer::backward(
 		geomState.conic_opacity,
 		color_ptr,
 		semantic_feature, /**/
-		depth_ptr, /**/
+		// depth_ptr, /**/
 		imgState.accum_alpha,
 		imgState.n_contrib,
 		dL_dpix,
 		dL_dfeaturepix,
-		dL_depths, /**/
+		// dL_depths, /**/
 		(float3*)dL_dmean2D,
 		(float4*)dL_dconic,
 		dL_dopacity,
 		dL_dcolor,
 		dL_dsemantic_feature,/**/
-		dL_dz, /**/
+		// dL_dz, /**/
 		collected_semantic_feature/**/
 		), debug)
 		cudaFree(collected_semantic_feature);
@@ -455,6 +455,6 @@ void CudaRasterizer::Rasterizer::backward(
 		dL_dcov3D,
 		dL_dsh,
 		(glm::vec3*)dL_dscale,
-		(glm::vec4*)dL_drot, 
-		dL_dz), debug)
+		(glm::vec4*)dL_drot), debug) 
+		// dL_dz),
 }

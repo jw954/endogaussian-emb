@@ -302,7 +302,7 @@ renderCUDA(
 
 	// Initialize helper variables
 	float T = 1.0f;
-	float prev_depp = 0.0f; /**/
+	// float prev_depp = 0.0f; /**/
 	uint32_t contributor = 0;
 	uint32_t last_contributor = 0;
 	float C[CHANNELS] = { 0 };
@@ -385,7 +385,7 @@ renderCUDA(
 			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch];
 		out_depth[pix_id] = D;
 
-		//feature
+		//feature /**/
 		for (int ch = 0; ch < NUM_SEMANTIC_CHANNELS; ch++)                 
 			out_feature_map[ch * H * W + pix_id] = SF[ch];
 	}

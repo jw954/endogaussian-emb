@@ -77,7 +77,7 @@ namespace CudaRasterizer
 			char* image_buffer,
 			const float* dL_dpix,
 			const float* dL_dfeaturepix, /**/
-			const float* dL_depths, /**/
+			// const float* dL_depths, /**/
 			float* dL_dmean2D,
 			float* dL_dconic,
 			float* dL_dopacity,
@@ -88,7 +88,7 @@ namespace CudaRasterizer
 			float* dL_dsh,
 			float* dL_dscale,
 			float* dL_drot,
-			float* dL_dz, /**/
+			// float* dL_dz, /**/ //whats dL_dz
 			bool debug);
 	};
 };
