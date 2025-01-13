@@ -80,7 +80,7 @@ python train.py -s ../pulling_soft_tissues --port 6017 --expname endonerf/pullin
 ### Rendering
 
 ```
-python render.py -s ../pulling_soft_tissues -m output --iteration 3000
+python render.py --model_path output/endonerf/pulling  --skip_train --skip_video --configs arguments/endonerf/pulling.py
 ```
 
 
